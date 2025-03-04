@@ -85,7 +85,7 @@ trait HasSubscription
             $this->getSubscriptionCacheKey('active'),
             now()->addMinutes($ttl),
             fn() => $this->subscriptions()
-                ->whereIn('status', ['active', 'trialing'])
+                ->whereIn('status', ['active', 'trialing', 'canceled'])
                 ->where('end_date', '>', now())
                 ->latest()
                 ->first()
