@@ -109,6 +109,18 @@ trait HasSubscription
         return $subscription && $subscription->isCanceled();
     }
 
+    public function resumeSubscription(): bool
+    {
+        $subscription = $this->activeSubscription();
+        if (!$subscription || !$subscription->isCanceled()) {
+            throw SubscriptionException::notCanceled();
+        }
+
+        $result = app(SubscriptionService::class)->resume($subscription);
+        $this->clearSubscriptionCache();
+        return $result;
+    }
+
     public function canceledAndExpired(): bool
     {
         $subscription = $this->activeSubscription();

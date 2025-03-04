@@ -17,6 +17,7 @@ use Aliziodev\PlanSubscription\Events\Subscription\SubscriptionEnteredGracePerio
 use Aliziodev\PlanSubscription\Exceptions\InvalidPeriodException;
 use Aliziodev\PlanSubscription\Events\Subscription\SubscriptionRenewed;
 use Aliziodev\PlanSubscription\Events\Subscription\AutoRenewalFailed;
+use Aliziodev\PlanSubscription\Events\Subscription\SubscriptionResumed;
 use Aliziodev\PlanSubscription\Events\Usage\{
     UsageRecorded,
     UsageReset,
@@ -75,7 +76,7 @@ class SubscriptionService implements SubscriptionInterface
     public function startFreeTrial($subscribable, string $trialPlanSlug = 'trial'): Subscription
     {
         $plan = Plan::where('slug', $trialPlanSlug)->active()->firstOrFail();
-        
+
         if ($subscribable->activeSubscription()) {
             throw SubscriptionException::alreadySubscribed();
         }
@@ -83,7 +84,7 @@ class SubscriptionService implements SubscriptionInterface
         return DB::transaction(function () use ($subscribable, $plan) {
             $startDate = now();
             $endDate = $startDate->copy()->addDays($plan->trial_days);
-            
+
             $subscription = $subscribable->subscriptions()->create([
                 'plan_id' => $plan->id,
                 'plan_limits' => $plan->limits,
@@ -103,7 +104,7 @@ class SubscriptionService implements SubscriptionInterface
             $this->clearSubscriberCache($subscribable);
 
             event(new SubscriptionCreated($subscription));
-            
+
             return $subscription;
         });
     }
@@ -111,7 +112,7 @@ class SubscriptionService implements SubscriptionInterface
     public function subscribe($subscribable, string $planSlug, int $period = 1): Subscription
     {
         $plan = Plan::where('slug', $planSlug)->active()->firstOrFail();
-        
+
         if (!$plan->is_active) {
             throw SubscriptionException::planNotActive();
         }
@@ -130,10 +131,10 @@ class SubscriptionService implements SubscriptionInterface
             if ($currentSub && $currentSub->status === 'trialing') {
                 $this->cancel($currentSub);
             }
-            
+
             $startDate = now();
             $endDate = $startDate->copy()->addMonthsNoOverflow($period);
-            
+
             $subscription = $subscribable->subscriptions()->create([
                 'plan_id' => $plan->id,
                 'plan_limits' => $plan->limits,
@@ -154,7 +155,7 @@ class SubscriptionService implements SubscriptionInterface
             $this->clearSubscriberCache($subscribable);
 
             event(new SubscriptionCreated($subscription));
-            
+
             return $subscription;
         });
     }
@@ -176,10 +177,27 @@ class SubscriptionService implements SubscriptionInterface
         return true;
     }
 
+    public function resume(Subscription $subscription): bool
+    {
+        if (!$subscription->isCanceled()) {
+            throw SubscriptionException::notCanceled();
+        }
+
+        $subscription->update([
+            'status' => 'active',
+            'canceled_at' => null
+        ]);
+
+        $this->clearSubscriberCache($subscription->subscribable);
+        event(new SubscriptionResumed($subscription));
+
+        return true;
+    }
+
     public function upgrade(Subscription $subscription, string $newPlanSlug): Subscription
     {
         $newPlan = Plan::where('slug', $newPlanSlug)->active()->firstOrFail();
-        
+
         if ($subscription->plan_id === $newPlan->id) {
             throw SubscriptionException::invalidUpgrade();
         }
@@ -200,7 +218,7 @@ class SubscriptionService implements SubscriptionInterface
             ]);
 
             $this->clearSubscriberCache($subscription->subscribable);
-           
+
             event(new SubscriptionUpgraded($newSubscription, $subscription));
 
             return $newSubscription;
@@ -247,7 +265,7 @@ class SubscriptionService implements SubscriptionInterface
             ]);
 
             $this->clearSubscriberCache($subscription->subscribable);
-           
+
             event(new SubscriptionRenewed($newSubscription, $subscription));
 
             return $newSubscription;
@@ -263,7 +281,7 @@ class SubscriptionService implements SubscriptionInterface
 
             return $this->renew($subscription);
         } catch (\Exception $e) {
-           
+
             event(new AutoRenewalFailed($subscription, $e->getMessage()));
             return null;
         }
@@ -296,7 +314,7 @@ class SubscriptionService implements SubscriptionInterface
                 $limit = $subscription->getFeatureLimit($metric);
                 $usage = $subscription->usages()->where('metric', $metric)->first();
                 $used = $usage ? $usage->used : 0;
-                
+
                 $usedPercentage = $limit !== -1 ? round(($used / $limit) * 100, 2) : 0;
                 $remainingPercentage = $limit !== -1 ? round(100 - $usedPercentage, 2) : 100;
 
@@ -323,7 +341,7 @@ class SubscriptionService implements SubscriptionInterface
         );
 
         $limit = $subscription->getFeatureLimit($metric);
-        
+
         if ($limit !== -1) {
             $newUsage = $usage->used + $amount;
             if ($newUsage > $limit) {
@@ -451,7 +469,7 @@ class SubscriptionService implements SubscriptionInterface
     {
         $remainingDays = now()->diffInDays($subscription->end_date);
         $totalDays = $subscription->start_date->diffInDays($subscription->end_date);
-        
+
         if ($totalDays <= 0) return 0;
 
         return ($subscription->price / $totalDays) * $remainingDays;
