@@ -465,7 +465,7 @@ class SubscriptionService implements SubscriptionInterface
         return $cycle === 'yearly' ? now()->addYear() : now()->addMonth();
     }
 
-    protected function calculateProratedCredit(Subscription $subscription): float
+    public function calculateProratedCredit(Subscription $subscription): float
     {
         $remainingDays = now()->diffInDays($subscription->end_date);
         $totalDays = $subscription->start_date->diffInDays($subscription->end_date);

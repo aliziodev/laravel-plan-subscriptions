@@ -133,6 +133,11 @@ trait HasSubscription
         return $subscription && $subscription->isCanceled() && !$subscription->hasExpired();
     }
 
+    public function calculateProratedCredit($planId): float
+    {
+        return app(SubscriptionService::class)->calculateProratedCredit($planId);
+    }
+
     // Usage Management Methods
     public function increaseUsage(string $metric, int $amount = 1): bool
     {
